@@ -240,16 +240,15 @@ class E8Lattice:
         if cls._roots is not None:
             return cls._roots
         roots = []
-        # Type 1: ±e_i ± e_j, i≠j (112 roots)
+        # Type 1: ±e_i ± e_j, i < j  (112 roots)
         for i in range(8):
-            for j in range(8):
-                if i != j:
-                    for si in [1.0, -1.0]:
-                        for sj in [1.0, -1.0]:
-                            r = np.zeros(8)
-                            r[i] = si
-                            r[j] = sj
-                            roots.append(r)
+            for j in range(i + 1, 8):
+                for si in [1.0, -1.0]:
+                    for sj in [1.0, -1.0]:
+                        r = np.zeros(8)
+                        r[i] = si
+                        r[j] = sj
+                        roots.append(r)
         # Type 2: (1/2)(±1,...,±1) with even number of minus signs (128 roots)
         for mask in range(256):
             signs = np.array([1.0 if not ((mask >> k) & 1) else -1.0 for k in range(8)])
