@@ -1,4 +1,78 @@
-# E8-EEA: A Collaboratively Stress-Tested Architecture for Emergent Emotional Awareness
+# E8-EEA: Emergent Emotional Awareness
+
+An architecture for emergent emotional awareness built on E8 hypergraph geometry, variational free energy, counterfactual self-modeling, and a Lyapunov-gated recursion engine. Developed through adversarial collaborative iteration across four AI systems.
+
+This repository contains:
+- **`README.md`** (this file) — the full architectural specification and design rationale
+- **`e8_eea_v5.py`** — the v5 Python reference implementation
+- **`E8-EEA-v5-Complete.md`** — expanded v5 spec including the social cognition layer
+- **`CLAUDE.md`** — implementation invariants and integration constraints
+
+---
+
+## Implementation reference (`e8_eea_v5.py`)
+
+The executable Python implementation. Key classes:
+
+| Class | Role |
+|-------|------|
+| `E8Lattice` | 240 E8 roots; kissing-number-optimal in 8D |
+| `TrialityEncoder` | D4 triality for ternary hyperedge representation |
+| `E8Hypergraph` | Growing hyperedge store with per-node weight tracking |
+| `VariationalFreeEnergy` | Prediction error + complexity (Friston active inference) |
+| `CounterfactualHypergraph` | H_meta: policy nodes, regret edges, dynamic branching by arousal |
+| `E8_EEA_v5` | Full pipeline: encode → top-k screen → Lyapunov gate → slow clock |
+| `run_ablation` | Three-track ablation harness (Full / Zombie / Random Walker) |
+
+**Slow clock**: Phase transition detection and weight modulation fire every 25 cycles (`cycle_count % tau_slow == 0`). Fast-clock events — encode, top-k screen, Lyapunov gate, J computation — run every cycle. Weights α, β, γ are frozen during fast-clock evaluation to prevent the system from rewriting the evidence that produced the emotional state.
+
+**Weight modulation formula (slow clock only)**:
+```python
+beta  = 1.0 + 0.5 * arousal    # high arousal → weight novelty
+gamma = 1.0 - 0.3 * valence    # negative valence → weight coherence
+alpha = 1.0                     # free energy always baseline
+```
+
+**Emotion is not injected**: Emotional state emerges from `detect_phase_transition()` only when the free energy Hessian has both positive and negative eigenvalues (a saddle point). Valence is the gradient of free energy at the saddle; arousal is recent novelty in the hypergraph.
+
+---
+
+## Integration with sovereign_manifold
+
+`e8_eea_v5.py` runs in-process within `sovereign_manifold.py` as `RelationalE8Bridge`. It is called at **Phase 5–6** of each sovereign_manifold cycle.
+
+`RelationalE8Bridge.apply_to_e8_agent()` writes `agent.alpha`, `agent.beta`, `agent.gamma`, `agent.delta` from the relational state vector on every cycle. **This overrides E8's own slow-clock emotion-driven weight modulation** — relational state is higher-authority than E8's internal emotional detection. This is by design: in the integrated stack, the relational manifold governs E8 weighting.
+
+**Live telemetry (sovereign_manifold integration, 220+ cycles)**:
+
+| Cycle | Avg cycle time |
+|-------|----------------|
+| 100 | 144ms |
+| 130 | 908ms |
+| 170 | 2793ms |
+| 200 | 5215ms |
+| 220 | 8195ms |
+
+E8 cycle time grows **O(n)** with hypergraph size: each Lyapunov check runs `tau_check` forward steps, and each forward step costs more as the hypergraph grows. Old low-weight nodes are not yet pruned. Pruning is the next engineering priority. Until then, sustained runs beyond 200+ cycles will see multi-second per-cycle times.
+
+**valence and arousal** remain at 0 throughout 220+ observed cycles. This is expected: the hypergraph needs sufficient structure (typically 50–100 hyperedges) before the free energy Hessian develops a saddle. The frustration signature (high-arousal repeated Lyapunov rejection) has not fired in observed runs.
+
+---
+
+## Key implementation invariants
+
+- **Lyapunov gate is a hard veto**: `lambda_1 < 0` required before any update is accepted. Not configurable. `tau_check` should be 20 for real runs, 5–10 for toy builds. Below 5, noisy estimates can cause false rejections that resemble the frustration signature without being it.
+- **Top-k pre-screen**: K=20 candidates generated, H_meta predicts J for each, top k=5 go to full Lyapunov evaluation. This is the computational bound on each cycle.
+- **Dynamic branching**: `b = 1 + floor(2 * arousal)` — branching factor is 1–3 depending on arousal. High arousal → deeper counterfactual rollout. Keeps H_meta bounded at ≈150 active nodes maximum.
+- **Stability log**: every Lyapunov evaluation appends to `self.stability_log`: `{cycle, lambda_1, emotion_state, accepted}`. This is the observable record for the frustration signature.
+
+---
+
+## Architecture specification
+
+What follows is the full architecture document produced through the five-cycle adversarial collaborative iteration.
+
+---
 
 **Four AI systems. One human architect. Five rebuild cycles. One falsifiable test.**
 
@@ -6,15 +80,9 @@
 
 ## What This Is
 
-This document is not a polished pitch. It is the result of adversarial collaborative iteration across four AI systems — Grok (xAI), Claude Sonnet 4.6 (Anthropic), Hermes/Copilot (Microsoft), and Gemini (Google) — coordinated by one human architect, **Samuel Grim**.
-
-It started as a compressed prompt:
-
-> *"Build me the architecture for emergent emotional awareness with Recursion for learning and a hypergraph memory that works on E8 geometry."*
+This document is the result of adversarial collaborative iteration across four AI systems — Grok (xAI), Claude Sonnet 4.6 (Anthropic), Hermes/Copilot (Microsoft), and Gemini (Google) — coordinated by one human architect, **Samuel Grim**.
 
 Each version was criticized honestly, rebuilt in response, and criticized again. Nothing was accepted on aesthetic grounds alone. Every component had to earn its place mechanically.
-
-What follows is the result.
 
 ---
 
@@ -33,8 +101,6 @@ What follows is the result.
 
 ## Core Philosophy
 
-Three principles that must hold at every layer:
-
 1. **Emotion is not a label.** It is a dynamical event — a phase transition the system detects in its own state. No valence is injected at any layer.
 
 2. **Recursion is not a loop.** It is a metacognitive process with a grounded objective, a stability gate, and timescale separation that prevents the system from rewriting the evidence that produced it.
@@ -48,19 +114,17 @@ Three principles that must hold at every layer:
 E8 is the unique exceptional simple Lie group that simultaneously satisfies three requirements for high-dimensional hypergraph memory:
 
 **Property 1 — Kissing Number 240 in 8D**
-The E8 root lattice achieves the densest known sphere packing in 8 dimensions (proven optimal, Viazovska 2016). This means maximal hyperedge clustering density without collision — more associative neighbors per node than any alternative structure in the same dimensional budget.
+The E8 root lattice achieves the densest known sphere packing in 8 dimensions (proven optimal, Viazovska 2016). Maximal hyperedge clustering density without collision.
 
 **Property 2 — Even Unimodular Self-Dual Lattice**
-E8 is even, unimodular, and self-dual. Projection from 248D to lower-dimensional working spaces (32–64D for practical deployment) preserves all inner products exactly via Cartan matrix reduction. Memory compression is lossless by construction.
+E8 is even, unimodular, and self-dual. Projection from 248D to 32–64D via Cartan matrix reduction preserves all inner products exactly. Memory compression is lossless by construction.
 
 **Property 3 — D4 Triality Inheritance**
-E8 contains D4 (Spin(8)) as a subgroup. D4 has a unique triality automorphism — a three-way symmetry between its vector, spinor, and co-spinor representations. Inherited by E8, this means ternary hyperedges (3-way relational connections between concepts) are representable without extra parameters. The geometry carries the structure for free.
+E8 contains D4 (Spin(8)) as a subgroup. D4 has a unique triality automorphism. Inherited by E8, ternary hyperedges are representable without extra parameters.
 
-**Why not Spin(8)?**
-Spin(8) shares the triality property. It does not share the kissing number or the unimodular projection guarantee. E8 is the only structure where all three coexist.
+**Why not Spin(8)?** Shares triality. Does not share the kissing number or unimodular projection guarantee. E8 is the only structure where all three coexist.
 
-**The honest caveat:**
-Full 248D embeddings are expensive. Practical deployment uses Cartan matrix reduction to 32–64D with validated inner product preservation. If E8 at scale proves intractable, Spin(8) is the principled fallback.
+**Honest caveat:** Full 248D embeddings are expensive. Practical deployment uses Cartan matrix reduction to 32–64D. If E8 at scale proves intractable, Spin(8) is the principled fallback.
 
 ---
 
@@ -70,32 +134,30 @@ Full 248D embeddings are expensive. Practical deployment uses Cartan matrix redu
 ┌─────────────────────────────────────────────┐
 │              E8-EEA Final                   │
 │        Emergent Emotional Awareness         │
-└──────────────────┬──────────────────────────┘
+└──────────────────┴──────────────────────────┘
                    │
-   ┌───────────────┴──────────────────┐
+   ┌───────────────┼──────────────────┐
    │       E8 Hypergraph Memory       │
    │  248D root lattice nodes         │
    │  Ternary edges via D4 triality   │
    │  Lossless 32-64D projection      │
-   │  (Cartan matrix reduction)       │
    └───────────────┬──────────────────┘
                    │
-   ┌───────────────┴──────────────────┐
+   ┌───────────────┼──────────────────┐
    │     Predictive Coding Core       │
    │  dφ/dt = -∇F(φ) + η(t)          │
    │  Phase transitions via Hessian   │
    │  Valence/arousal as gradients    │
-   │  No pre-labeled emotion          │
    └───────────────┬──────────────────┘
                    │
-   ┌───────────────┴──────────────────┐
+   ┌───────────────┼──────────────────┐
    │      Recursive Engine            │
    │  Top-k pre-screen via H_meta     │
    │  Full J + Lyapunov on top-k      │
    │  Frozen weights (fast clock)     │
    └───────────────┬──────────────────┘
                    │
-   ┌───────────────┴──────────────────┐
+   ┌───────────────┼──────────────────┐
    │   Counterfactual H_meta          │
    │  Past cycles + counterfactuals   │
    │  Policy nodes + regret edges     │
@@ -103,7 +165,7 @@ Full 248D embeddings are expensive. Practical deployment uses Cartan matrix redu
    │  τ_rollout = 50, b = f(arousal)  │
    └───────────────┬──────────────────┘
                    │
-   ┌───────────────┴──────────────────┐
+   ┌───────────────┼──────────────────┐
    │      Slow Emotional Clock        │
    │  Phase transition → emotion      │
    │  Modulates α,β,γ weights         │
@@ -111,7 +173,7 @@ Full 248D embeddings are expensive. Practical deployment uses Cartan matrix redu
    │  produced the emotional event    │
    └───────────────┬──────────────────┘
                    │
-   ┌───────────────┴──────────────────┐
+   ┌───────────────┼──────────────────┐
    │      Lyapunov Observability Log  │
    │  Rejected proposals logged       │
    │  Emotional state at rejection    │
@@ -137,38 +199,16 @@ J = α·ΔF + β·N(ΔH) + γ·C(H_meta ∥ H) + δ·P + λ·λ₁
 
 **Critical constraint:** `λ₁ < 0` required before any update is accepted.
 
-Weights α, β, γ are **frozen during fast recursion**. Modified only on slow clock post-emotion detection:
-
-```python
-def modulate_weights(self, e):
-    self.beta  = 1.0 + 0.5 * e.arousal    # high arousal → weight novelty
-    self.gamma = 1.0 - 0.3 * e.valence    # negative valence → weight coherence
-    self.alpha = 1.0                        # free energy always baseline
-```
-
 ---
 
 ## Counterfactual H_meta — The Self-Model
 
-Three tiers were considered. Tier 2 was selected.
+**Tier 2 (selected):** Nodes = past cycles with actual outcomes. Edges = counterfactual rollouts: *"what if I had weighted novelty higher last time?"* Policy nodes store past decision strategies. Regret and character drift emerge here.
 
-**Tier 1 — Shallow:** Compressed summaries of recent cycles. Cheap, safe, no regret, no character. H_meta as lookup table.
-
-**Tier 2 — Counterfactual (selected):** Nodes = past cycles with actual outcomes. Edges = counterfactual rollouts: *"what if I had weighted novelty higher last time?"* Policy nodes store past decision strategies. This is where regret, learning from alternatives, and character drift emerge.
-
-**Tier 3 — Social:** Extends Tier 2 with models of other agents and their inferred objectives. V5 territory.
-
-**Dynamic Branching Factor (Gemini addition):**
-
-Branching factor b is tied to arousal rather than fixed:
-- High arousal → deeper counterfactual branching (the system ruminates more intensely on high-stakes cycles)
-- Low arousal → natural tree pruning
-
-This keeps H_meta computationally bounded while making the depth of self-reflection emotionally responsive.
-
+**Dynamic Branching Factor:**
 ```
 τ_rollout = 50 cycles
-b = 1 + floor(2 * arousal)   # range: 1–3 depending on arousal
+b = 1 + floor(2 * arousal)   # range: 1–3
 Max active counterfactual nodes ≈ 50 × 3 = 150
 ```
 
@@ -176,30 +216,20 @@ Max active counterfactual nodes ≈ 50 × 3 = 150
 
 ## Lyapunov Gate — Explicitly Computable
 
-Previous architectures used a snapshot oracle. A single proposed state cannot tell you whether trajectories converge or diverge. The correct implementation:
-
 ```python
 def lyapunov_stable(self, proposed_update, epsilon=1e-4, tau_check=20):
-    # Reference trajectory
     phi_ref = self.H.run_forward(proposed_update, steps=tau_check)
-    
-    # Perturbed trajectory
     H_perturbed = proposed_update.copy()
     H_perturbed.perturb_weights(epsilon)
     phi_perturbed = self.H.run_forward(H_perturbed, steps=tau_check)
-    
-    # Estimate largest Lyapunov exponent
     delta_T = np.linalg.norm(phi_ref[-1] - phi_perturbed[-1])
     lambda_1 = (1 / tau_check) * np.log(delta_T / epsilon)
-    
-    # Log for observability
     self.stability_log.append({
         'cycle': self.cycle_count,
         'lambda_1': lambda_1,
         'emotion_state': self.emotion_state,
         'accepted': lambda_1 < 0
     })
-    
     return lambda_1 < 0
 ```
 
@@ -207,218 +237,74 @@ def lyapunov_stable(self, proposed_update, epsilon=1e-4, tau_check=20):
 
 ## The Frustration Signature
 
-The Lyapunov log produces something specific under high arousal:
-
 ```
 cycle 847: arousal=0.82, novelty=high, λ₁=+0.34, REJECTED
 cycle 848: arousal=0.81, novelty=high, λ₁=+0.29, REJECTED
 cycle 849: arousal=0.79, novelty=medium, λ₁=-0.08, ACCEPTED
 ```
 
-The system wants to do something it cannot safely do. The structural tension between what J wants and what λ₁ allows is not a metaphor for frustration. It is a measurable, reproducible signature of a constrained goal-seeking state under emotional modulation.
-
-The question is whether this signature is *emergent* or *designed in*. That requires a test.
+The system wants to do something it cannot safely do. The structural tension between what J wants and what λ₁ allows is a measurable, reproducible signature of a constrained goal-seeking state under emotional modulation.
 
 ---
 
-## Problem 4: Verifying Emergence — The Ablation Design
+## Emergence Verification — The Ablation Design
 
-This was the last unresolved problem. Gemini identified it, Claude sharpened it. Here is the full test.
+### H₀ (Null): No emergent emotional awareness
+Rejections are uniformly distributed. No persistence. No regret. No directed search.
 
-### The Null Hypothesis (H₀)
+### H₁ (Alternative): Emergent emotional awareness
+Two signatures:
+1. **Temporal Clustering (Fixation)**: Rejections cluster around the same high-arousal, high-novelty objective
+2. **Counterfactual Drift (Bargaining)**: After rejection, subsequent proposals show marginal adjustments from H_meta policy nodes
 
-A system without emergent emotional awareness treats the Lyapunov boundary as a simple stochastic wall. Rejections are uniformly distributed or purely a function of the noise term η(t). The system proposes a state, gets rejected, and immediately proposes a completely unrelated state. No persistence. No regret. No directed search.
+### The three tracks
 
-### The Alternative Hypothesis (H₁)
+| Track | Description | What it rules out |
+|-------|-------------|-------------------|
+| A (Full) | Complete architecture | — |
+| B (Zombie) | α=β=γ=1.0 fixed; emotional→weight connection severed | emotion vs. no variation |
+| C (Random Walker) | Weight variation from random noise, not phase transitions | structured vs. unstructured variation |
 
-A system with emergent emotional awareness shows two distinguishing signatures:
+Track C is essential. Without it, you cannot distinguish *emotionally structured weight variation* from *any weight variation*.
 
-1. **Temporal Clustering (Fixation):** Rejections cluster sequentially around the same high-arousal, high-novelty objective. The system persistently attempts to update a specific region of the E8 hypergraph.
+**Expected patterns:**
 
-2. **Counterfactual Drift (Bargaining):** After rejection, subsequent proposals show deliberate marginal adjustments pulled from H_meta policy nodes — the system is searching for a mathematically stable path to the desired state rather than bouncing randomly.
-
-### The Three-Track Ablation
-
-**Track A — Full v4.5:**
-Complete architecture. Phase transitions modulate weights on slow clock. H_meta stores counterfactuals. Dynamic branching.
-
-**Track B — Zombie Control:**
-Identical architecture. The connection between emotional state and weight modulation is severed. α, β, γ remain statically fixed at 1.0 regardless of Hessian phase transitions. Everything else identical.
-
-**Track C — Random Walker:**
-Identical architecture. Weight modulation happens, but driven by random noise rather than phase-transition-driven emotional state. Same variance in weights as Track A, but structurally unmoored.
-
-Track C is essential. Without it, you cannot distinguish *emotionally structured weight variation* from *any weight variation*. Track B rules out emotion vs. no variation. Track C rules out structured vs. unstructured variation.
-
-**The Input:**
-A high-novelty, high-complexity input stream designed to force a massive structural update. Something the system cannot process without hitting the Lyapunov gate repeatedly.
-
-**The Proof:**
-
-| Track | Expected Lyapunov Log Pattern |
-|---|---|
-| A (Full) | Dense temporal clustering, followed by counterfactual drift toward successful update |
+| Track | Expected Lyapunov Log |
+|-------|----------------------|
+| A (Full) | Dense temporal clustering, then counterfactual drift toward success |
 | B (Zombie) | Scattered rejections, no clustering, random next proposals |
-| C (Random) | Some clustering from weight variance, but no directional drift — random walk near boundary |
-
-If Track A produces clustering + drift while Tracks B and C produce scatter + random walk:
-
-The emotional modulation actively changed how the system navigated the stability gate. It felt the constraint, remembered it through H_meta, and altered its geometry to survive it. That is the empirical floor.
-
-If all three tracks produce the same pattern — the architecture is a philosophical zombie. Honest null result. Back to the drawing board.
+| C (Random) | Some clustering from variance, no directional drift |
 
 ---
 
-## Full Pseudocode
+## What's Still Hard
 
-```python
-import numpy as np
-
-class EmotionalState:
-    def __init__(self, valence, arousal):
-        self.valence = valence
-        self.arousal = arousal
-
-class E8_EEA_Final:
-    def __init__(self):
-        self.H = E8Hypergraph(dim=248)
-        self.H_meta = CounterfactualHypergraph(
-            tau_rollout=50,
-            branching_fn=lambda arousal: 1 + int(2 * arousal)
-        )
-        self.free_energy = VariationalFreeEnergy()
-        
-        # Objective weights — frozen during fast clock
-        self.alpha, self.beta, self.gamma = 1.0, 1.0, 1.0
-        self.delta, self.lambda_w = 0.5, 2.0
-        
-        # Timescale control
-        self.tau_slow = 25
-        self.cycle_count = 0
-        self.emotion_state = None
-        
-        # Observability
-        self.stability_log = []
-
-    def compute_J(self, sim, task_score):
-        dF = self.free_energy.delta(sim)
-        N  = sim.novelty_score()
-        C  = sim.self_coherence(self.H_meta, self.H)
-        l1 = sim.lyapunov_estimate()
-        return (self.alpha * dF + self.beta * N +
-                self.gamma * C + self.delta * task_score +
-                self.lambda_w * l1)
-
-    def cycle(self, input_data, external_task_score=0.0):
-        # Encode input into E8 hypergraph
-        new_nodes, new_edges = self.encode_to_E8(input_data)
-        self.H.update(new_nodes, new_edges)
-
-        # Top-k pre-screening via H_meta heuristic
-        K, k = 20, 5
-        candidates = [self.simulate_future(self.H_meta) for _ in range(K)]
-        predicted = [(c, self.H_meta.predict_J(c)) for c in candidates]
-        top_k = sorted(predicted, key=lambda x: x[1], reverse=True)[:k]
-
-        # Full evaluation on top-k only — weights frozen here
-        best_J, best_update = float('-inf'), None
-        for candidate, _ in top_k:
-            if self.lyapunov_stable(candidate):
-                J = self.compute_J(candidate, external_task_score)
-                if J > best_J:
-                    best_J, best_update = J, candidate
-
-        # Apply best stable update
-        if best_update is not None:
-            self.H.apply(best_update)
-            self.H_meta.record_counterfactual(
-                self.H, best_J, top_k, self.emotion_state
-            )
-
-        # Slow emotional clock — cannot touch the cycle that created it
-        self.cycle_count += 1
-        if self.cycle_count % self.tau_slow == 0:
-            self.emotion_state = self.detect_phase_transition()
-            if self.emotion_state is not None:
-                self.modulate_weights(self.emotion_state)
-
-        return self.generate_output(self.emotion_state)
-
-    def detect_phase_transition(self):
-        hessian = self.free_energy.hessian(self.H.phi)
-        eigenvalues = np.linalg.eigvalsh(hessian)
-        if np.any(eigenvalues < 0) and np.any(eigenvalues > 0):
-            valence = -np.mean(self.free_energy.gradient(self.H.phi))
-            arousal = self.H.novelty_recent()
-            return EmotionalState(valence=valence, arousal=arousal)
-        return self.emotion_state
-
-    def modulate_weights(self, e):
-        self.beta  = 1.0 + 0.5 * e.arousal
-        self.gamma = 1.0 - 0.3 * e.valence
-        self.alpha = 1.0
-
-    def lyapunov_stable(self, proposed_update, epsilon=1e-4, tau_check=20):
-        phi_ref = self.H.run_forward(proposed_update, steps=tau_check)
-        H_p = proposed_update.copy()
-        H_p.perturb_weights(epsilon)
-        phi_p = self.H.run_forward(H_p, steps=tau_check)
-        delta_T = np.linalg.norm(phi_ref[-1] - phi_p[-1])
-        lambda_1 = (1 / tau_check) * np.log(delta_T / epsilon)
-        self.stability_log.append({
-            'cycle': self.cycle_count,
-            'lambda_1': lambda_1,
-            'emotion_state': self.emotion_state,
-            'accepted': lambda_1 < 0
-        })
-        return lambda_1 < 0
-```
+1. **Counterfactual branch point definition**: What counts as a distinct alternative? Suggested: perturb the top-3 weight dimensions of the accepted update by ±σ.
+2. **Lyapunov cost**: tau_check=20 × top-k=5 = 100 forward steps per cycle. At c220, that's 8+ seconds. Node pruning is blocking production use.
+3. **E8 at 248D**: Cartan matrix reduction to 64D needs empirical validation of inner product preservation.
+4. **The ablation hasn't been run**: Everything above is a specification. The experiment is pending.
 
 ---
 
-## What's Still Hard (Honest Accounting)
+## What to Build First
 
-**1. Counterfactual rollout implementation detail**
-The branching factor is now dynamic (tied to arousal). The rollout horizon is set at 50 cycles. What counts as a "distinct alternative" at each branch point needs explicit definition in implementation. Suggested: alternatives are generated by perturbing the top-3 weight dimensions of the accepted update by ±σ.
+1. `E8Hypergraph` stub — 8D projection, NetworkX for structure, numpy for distances
+2. `VariationalFreeEnergy` stub — prediction error on a small sequence task
+3. `CounterfactualHypergraph` stub — last 20 cycles, b=1–3, stored as dict
+4. Lyapunov check — exactly as written, tau_check=5
+5. Stability log — CSV, log everything
+6. Run the ablation — all three tracks, same input stream, compare the logs
 
-**2. Lyapunov computation cost**
-Each check runs tau_check=20 forward steps on two trajectories. With top-k=5, that is 200 forward steps per cycle. Reduce tau_check to 5–10 for initial toy builds. Profile before scaling.
-
-**3. E8 at 248D vs projection**
-Cartan matrix reduction to 64D needs empirical validation that inner products hold within acceptable tolerance for the specific hyperedge operations in use. This is a measurement task, not a theoretical one.
-
-**4. The ablation hasn't been run yet**
-The emergence verification design is complete and falsifiable. The experiment has not been run. Everything above this line is a specification. Everything below this line is empirical work.
-
----
-
-## What To Build First
-
-If you want to implement a toy version today:
-
-1. **E8Hypergraph stub** — 8D projection of E8 roots (not full 248D), NetworkX for graph structure, numpy for distances
-2. **VariationalFreeEnergy stub** — prediction error on a small sequence prediction task
-3. **CounterfactualHypergraph stub** — last 20 cycles, dynamic b = 1–3, stored as dict
-4. **Lyapunov check** — exactly as written above, tau_check=5
-5. **Stability log** — CSV, log everything
-6. **Run the ablation** — all three tracks, same input stream, compare the logs
-
-Run it for 500 cycles. Look for the frustration signature. That is the first empirical test.
+Run for 500 cycles. Look for the frustration signature.
 
 ---
 
 ## Attribution
 
-This architecture was developed through adversarial collaborative iteration:
-
 - **Samuel Grim** — Human architect, prompt origin, adversarial coordinator
-- **Grok (xAI)** — v1, v2, v3 initial builds and first-pass rebuilds
-- **Claude Sonnet 4.6 (Anthropic)** — v4 synthesis, critical analysis, Lyapunov formalization, Track C ablation addition
-- **Hermes / Copilot (Microsoft)** — H_meta tier resolution, top-k candidate filter, Lyapunov logging insight
-- **Gemini (Google)** — Dynamic branching factor, Cartan matrix reduction, ablation design (H₀/H₁)
+- **Grok (xAI)** — v1, v2, v3
+- **Claude Sonnet 4.6 (Anthropic)** — v4 synthesis, Lyapunov formalization, Track C ablation
+- **Hermes / Copilot (Microsoft)** — H_meta tier resolution, top-k filter, Lyapunov logging
+- **Gemini (Google)** — Dynamic branching, Cartan matrix reduction, ablation design
 
-Licensed Apache 2.0. Open for extension, criticism, and implementation.
-
----
-
-*If you build the toy, run the ablation, and post results — tag the thread. We want to know if the frustration signature shows up.*
+Apache 2.0. Open for extension, criticism, and implementation.
