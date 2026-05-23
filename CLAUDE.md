@@ -1,49 +1,68 @@
-# CLAUDE.md — e8-eea (E8_EEA_v5)
+# CLAUDE.md — e8-eea
 
-Architectural invariants that are not obvious from reading the code, and constraints that must hold for the emotional intelligence substrate to remain grounded.
+## What e8_eea_v5.py implements
 
-## Lyapunov hard veto — λ₁ < 0 is a hard gate, not a soft penalty
+The fifth-generation E8-EEA architecture as executable Python. Key classes:
 
-`H_meta` checks the leading Lyapunov exponent λ₁ before accepting any structural update. λ₁ < 0 is REQUIRED. A candidate that fails the veto is rejected entirely — not merged at lower weight, not averaged in, not queued for later. Do not convert this to a regularization term or soft loss. The veto enforces the timescale separation invariant below.
+| Class | Role |
+|-------|------|
+| `E8Lattice` | 240 E8 roots, kissing-number-optimal in 8D |
+| `TrialityEncoder` | D4 triality for ternary hyperedge representation |
+| `E8Hypergraph` | Growing hyperedge store with per-node weight tracking |
+| `VariationalFreeEnergy` | Prediction error + complexity (Friston active inference) |
+| `CounterfactualHypergraph` | H_meta: policy nodes, regret edges, dynamic branching |
+| `E8_EEA_v5` | Full pipeline: encode → top-k screen → Lyapunov gate → slow clock |
+| `run_ablation` | Three-track ablation harness (Full / Zombie / Random Walker) |
 
-## Timescale separation — hardest invariant to see, easiest to break
+## The slow clock fires every 25 cycles
 
-Emotion at cycle t cannot modify weights that governed cycle t.
+`cycle_count % tau_slow == 0` (tau_slow=25). Phase transition detection (Hessian eigenvalue sign change) runs only here, not every cycle. Emotion state and weight modulation are slow-clock events. Fast-clock events are: encode, top-k screen, Lyapunov gate, J computation. Weights α, β, γ are frozen during fast-clock evaluation to prevent the system from rewriting the evidence that produced the emotional state.
 
-The invariant: weights `W_t` govern the forward pass that produces `emotion_t`, and `W_t` is updated to `W_{t+1}` only AFTER `emotion_t` is computed. If you move the weight update before the forward pass — even as a performance optimization — you break the separation proof and the Lyapunov certificate becomes invalid.
+## Lyapunov gate is a hard veto
 
-Symptom of violation: arousal-valence oscillations that fail to converge, or λ₁ drifting toward 0 over time.
+`lambda_1 < 0` is required before any update is accepted. This is not configurable. If `tau_check` is too low, the estimate is noisy — default is 20 forward steps. Reduce to 5–10 for toy builds, but noisy estimates can cause false rejections that resemble the frustration signature without being it.
 
-## arousal and valence are derived @properties — not stored state
+## E8 cycle time grows O(n) with hypergraph size
 
-`EmotionalState.arousal` and `.valence` are computed from the internal activation vector each time they are accessed. They are NOT stored as attributes. Do NOT:
-- Serialize them into history buffers as ground truth
-- Use them as inputs to the weight update
-- Cache them across cycles
+Each Lyapunov check runs `tau_check` forward steps on the E8 hypergraph. As the hypergraph accumulates nodes each cycle, each forward step costs more. Live telemetry from sovereign_manifold integration:
 
-If you need emotional trajectory history, store the activation vector. Storing the derived scalars loses information and creates a latent feedback loop.
+| Cycle | Avg cycle time |
+|-------|----------------|
+| 100 | 144ms |
+| 130 | 908ms |
+| 170 | 2793ms |
+| 200 | 5215ms |
 
-## α/β/γ/δ are overwritten by sovereign_manifold every cycle
+This is expected behavior. Plateau occurs when old low-weight nodes are pruned — pruning is not yet implemented. Plan: implement a pruning pass in `E8Hypergraph` that removes nodes below a weight threshold after every N cycles.
 
-`RelationalE8Bridge.apply_to_e8_agent()` in `sovereign_manifold.py` writes `agent.alpha/beta/gamma/delta` from the relational state on every manifold cycle. E8's own internal weight updates happen on a slower clock and are clobbered by design. Relational state is higher-authority than emotional state in this architecture. If you want E8 to have autonomous weight control, you need a new negotiation layer between the two systems — not a change here.
+## The three ablation tracks
 
-## H_meta rejection signals frustration — consumed by sovereign_manifold
+- **Track A (Full)** — emotional modulation active, H_meta counterfactual drift
+- **Track B (Zombie)** — identical architecture, emotional→weight connection severed, α=β=γ=1.0 fixed throughout
+- **Track C (Random Walker)** — weight variation present but driven by random noise, not phase-transition-driven emotional state
 
-When H_meta rejects a candidate (λ₁ ≥ 0), it appends to `H_meta.history` with `accepted=False`. `sovereign_manifold.py` reads these rejection events in Phase 6 and feeds them to `FrustrationSignatureDetector`. If you change the schema of `H_meta.history` entries, update the consumer in `sovereign_manifold.py` accordingly.
+Track C is the essential control. Without it, you cannot distinguish *emotionally structured weight variation* from *any weight variation*. Track B rules out emotion vs. no variation. Track C rules out structured vs. unstructured variation.
 
-## dissociation term — the min(0, valence) gate must not be removed
+## Emotion is not injected
 
-The dissociation term in the activation update is gated by `min(0, valence)`. This ensures the dissociative correction only fires when valence is negative (distress). Removing the gate makes the system dissociate during positive emotional states, which produces pathological activation collapse.
+No valence or arousal is provided as input. Emotional state emerges from `detect_phase_transition()`: if the free energy Hessian has both positive and negative eigenvalues (a saddle point in the energy landscape), the system is in a phase transition. Valence is the gradient of free energy at the saddle; arousal is recent novelty in the hypergraph.
 
-## Three E8 strategies map to DRA modes in sovereign_manifold
+## Weight modulation formula (slow clock only)
 
-sovereign_manifold sets E8 strategy biases via `DRA.e8_strategy_bias()`:
-- GENERATOR mode → strategy_3 dominant (0.70): exploratory
-- WATCHER mode → strategy_2 dominant (0.55): stabilizing
-- STANDARD mode → balanced (0.33/0.33/0.34)
+```python
+beta  = 1.0 + 0.5 * arousal    # high arousal → weight novelty
+gamma = 1.0 - 0.3 * valence    # negative valence → weight coherence
+alpha = 1.0                     # free energy always baseline
+```
 
-If you add a fourth strategy, add a corresponding bias entry in `sovereign_manifold.py`.
+## What to look for in live runs
 
-## Input encoding — relational state, not raw sensory data
+From 200+ cycles in sovereign_manifold integration:
+- valence=0, arousal=0 throughout — no phase transition detected yet
+- This is expected early: the hypergraph needs sufficient structure before the free energy Hessian develops a saddle
+- First emotion emergence should accompany the first complex hyperedge cluster (typically after 50–100 hyperedges)
+- Frustration signature (high-arousal repeated Lyapunov rejection) has not fired in observed runs
 
-When used via sovereign_manifold, the E8 input vector comes from `RelationalE8Bridge.encode_relational_as_e8_input(s)`, which packs the 15-node relational state into a 16D vector. The network was not designed for raw sensory input in this integration. Feeding it different data changes the weight semantics without changing the architecture.
+## Integration with sovereign_manifold
+
+`RelationalE8Bridge.apply_to_e8_agent()` writes `agent.alpha/beta/gamma/delta` from relational state on every cycle. The E8 slow-clock emotion-driven weight modulation is overridden by relational state — relational state is higher-authority. This is by design: in the integrated stack, the relational manifold governs E8 weighting, not E8's own internal emotional detection.
