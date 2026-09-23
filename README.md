@@ -1,5 +1,12 @@
 # E8-EEA: Emergent Emotional Awareness
 
+[![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue)](LICENSE)
+[![dual-license](https://img.shields.io/badge/dual--license-AGPL--3.0--only%20or%20commercial-blueviolet)](LICENSING.md)
+[![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)](https://www.python.org)
+[![release](https://img.shields.io/github/v/release/SamuelJacksonGrim/e8-eea)](https://github.com/SamuelJacksonGrim/e8-eea/releases/latest)
+![status](https://img.shields.io/badge/status-research-success)
+
+
 An architecture for emergent emotional awareness built on E8 hypergraph geometry, variational free energy, counterfactual self-modeling, and a Lyapunov-gated recursion engine. Developed through adversarial collaborative iteration across four AI systems.
 
 This repository contains:
